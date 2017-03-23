@@ -1,5 +1,9 @@
 'use strict';
 
+// dependencies
+var awsIot = require('aws-iot-device-sdk');
+
+
 // --------------- Helpers that build all of the responses -----------------------
 
 function buildSpeechletResponse(title, output, repromptText, shouldEndSession) {
@@ -67,7 +71,7 @@ function getLightLevel(intent, session, callback) {
 
     if (roomSlot) { 
         const room = roomSlot.value;
-        speechOutput = `${room} is ${getLightLevelForRoom(room)}. You can ask me to change this if you want.`;
+        speechOutput = `${room} is ${getLightLevelForRoom(room, intent.request.requestId)}. You can ask me to change this if you want.`;
         repromptText = `You can ask me to change the light level in any room if you want.`;
         shouldEndSession = true;
     } else {
@@ -161,7 +165,28 @@ function changeLightLevel(intent, session, callback, direction) {
 /**
  * Called when the session starts.
  */
+var queue = {};
+var device;
+	device = awsIot.device({
+	keyPath: 'lumiere-private.pem.key',
+	certPath: 'lumiere-certificate.pem.crt',
+	caPath: 'root_CA.crt',
+	clientId: 'lumiere_lambda',
+	region: 'us-east-1' 
+});
+device
+  .on('connect', function() {
+    console.log('connect');
+      device.subscribe('rpi-responses');
+    });
+
+device
+  .on('message', function(topic, payload) {
+    console.log('message', topic, payload.toString());
+  });
+
 function onSessionStarted(sessionStartedRequest, session) {
+
     console.log(`onSessionStarted requestId=${sessionStartedRequest.requestId}, sessionId=${session.sessionId}`);
 }
 
@@ -395,8 +420,36 @@ var CHANGE_MODIFIER = {
 	moderate: 100
 };
 
-function getNumericalLightLevelForRoom(room){
-	return 42; //TODO
+var ROOM_NAME_TO_NUM = {
+	`room one`,
+	`room one's`,
+	`room two`,
+	`room two's`,
+	`room three`,
+	`room three's`,
+	`first room`,
+	`first room's`,
+	`the first room`,
+	`the first room's`,
+	`second room`,
+	`second room's`,
+	`the second room`,
+	`the second room's`,
+	`third room`,
+	`third room's`,
+	`the third room`,
+	`the third room\'s`
+}
+
+function getNumericalLightLevelForRoom(room, requestId, callback){
+	queue[requestId] = function(response){
+		callback(response.value);
+	};
+	device.publish('lighter-queries', JSON.stringify({
+		request_id: requestId,
+		room: ROOM_NAME_TO_NUM[room],
+		action: 'GET'
+	}));
 }
 
 function getMembershipsForLightLevel(numericalLightLevel){
@@ -410,8 +463,10 @@ function getMembershipsForLightLevel(numericalLightLevel){
 	}
 	return memberships;
 }
-function getLightLevelForRoom(room) {
-    var numericalLightLevel = getNumericalLightLevelForRoom(room);
+function getLightLevelForRoom(room, requestId, callback) {
+    var numericalLightLevel = getNumericalLightLevelForRoom(room, requestId, function(numericalLightLevel){
+	var normalizedLightLevel = min(1000, numericalLightLevel
+    });
 	var memberships = getMembershipsForLightLevel(numericalLightLevel);
 	memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
 	return memberships.map(function(element){return element[0]}).join(" ");
