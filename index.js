@@ -71,16 +71,18 @@ function getLightLevel(intent, session, callback) {
 
     if (roomSlot) { 
         const room = roomSlot.value;
-        speechOutput = `${room} is ${getLightLevelForRoom(room, intent.request.requestId)}. You can ask me to change this if you want.`;
-        repromptText = `You can ask me to change the light level in any room if you want.`;
-        shouldEndSession = true;
+	getLightLevelForRoom(room, intent.request.requestId, function(lightLevelString){
+		speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
+        	repromptText = `You can ask me to change the light level in any room if you want.`;
+        	shouldEndSession = true;
+		callback(sessionAttributes,
+			buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+		});
     } else {
         speechOutput = `I'm not sure which room you were asking about. Please try again.`;
         repromptText = `I'm not sure which room you were asking about.`;
+	callback(sessionAttributes, buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
     }
-
-    callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
 }
 
 function setLightLevel(intent, session, callback) {
@@ -182,7 +184,13 @@ device
 
 device
   .on('message', function(topic, payload) {
-    console.log('message', topic, payload.toString());
+	if(topic == 'rpi-responses'){
+		var message = JSON.parse(payload.toString());
+		if(message.sucess === true && queue[message.request_id]){
+			queue[message.request_id](message.value);	
+			queue[message.request_id] = null;
+		}
+	}
   });
 
 function onSessionStarted(sessionStartedRequest, session) {
@@ -465,11 +473,12 @@ function getMembershipsForLightLevel(numericalLightLevel){
 }
 function getLightLevelForRoom(room, requestId, callback) {
     var numericalLightLevel = getNumericalLightLevelForRoom(room, requestId, function(numericalLightLevel){
-	var normalizedLightLevel = min(1000, numericalLightLevel
-    });
-	var memberships = getMembershipsForLightLevel(numericalLightLevel);
+	var normalizedLightLevel = min(1000, numericalLightLevel)/10;
+	var memberships = getMembershipsForLightLevel(normalizedLightLevel);
 	memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
-	return memberships.map(function(element){return element[0]}).join(" ");
+	callback(memberships.map(function(element){return element[0]}).join(" "));
+    });
+	
 }
 
 function setLightLevelForRoom(room, target, modifier, percentage){
