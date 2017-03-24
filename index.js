@@ -68,18 +68,29 @@ function getLightLevel(intent, session, callback) {
 
   if (roomSlot) { 
     const room = roomSlot.value;
-    getLightLevelForRoom(room, intent.request.requestId, function(lightLevelString) {
-      speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
-      repromptText = `You can ask me to change the light level in any room if you want.`;
-      shouldEndSession = true;
-      callback(sessionAttributes,
-	buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
-    });
+    console.log('Calling getLightLevelForRoom');
+    callback(sessionAttributes, buildSpeechletResponse(cardTitle, 'Hello, world. I hate this course.', 'FML', true));
+    // getLightLevelForRoom(room, intent.requestId, function(lightLevelString) {
+    //   speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
+    //   repromptText = `You can ask me to change the light level in any room if you want.`;
+    //   shouldEndSession = true;
+    //   console.log(lightLevelString);
+    //   console.log(sessionAttributes);
+    //   console.log(cardTitle);
+    //   console.log(speechOutput);
+    //   console.log(repromptText);
+    //   console.log(shouldEndSession);
+    //   console.log(callback);
+    //   console.log(this);
+    //   this(sessionAttributes,
+    //     buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+    // }.bind(callback));
   } else {
-      speechOutput = `I'm not sure which room you were asking about. Please try again.`;
-      repromptText = `I'm not sure which room you were asking about.`;
-      callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+    console.log('Unable to determine the correct room.');
+    speechOutput = `I'm not sure which room you were asking about. Please try again.`;
+    repromptText = `I'm not sure which room you were asking about.`;
+    callback(sessionAttributes,
+      buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
   }
 }
 
@@ -182,11 +193,13 @@ device
 
 device
   .on('message', function(topic, payload) {
-    if(topic == 'rpi-responses') {
+    console.log(`${topic}: ${payload.toString()}`);
+    if (topic === 'rpi-responses') {
       const message = JSON.parse(payload.toString());
-      if (message.sucess === true && queue[message.request_id]) {
-	queue[message.request_id](message.value);	
-	queue[message.request_id] = null;
+      console.log('Received message, queue[requestId] = ', queue[message.requestId]);
+      if (message.success === true && queue[message.requestId]) {
+        queue[message.requestId](message.value);	
+        queue[message.requestId] = null;
       }
     }
   });
@@ -212,6 +225,7 @@ function onIntent(intentRequest, session, callback) {
   console.log(`onIntent requestId=${intentRequest.requestId}, sessionId=${session.sessionId}`);
 
   const intent = intentRequest.intent;
+  intent.requestId = intentRequest.requestId;
   const intentName = intentRequest.intent.name;
 
   // Dispatch to your skill's intent handlers
@@ -432,6 +446,12 @@ const ROOM_NAME_TO_NUM = {
 	[`room two's`]: 1,
 	[`room three`]: 2,
 	[`room three's`]: 2,
+  [`room 1`]: 0,
+  [`room 1's`]: 0,
+  [`room 2`]: 1,
+  [`room 2's`]: 1,
+  [`room 3`]: 2,
+  [`room 3's`]: 2,
 	[`first room`]: 0,
 	[`first room's`]: 0,
 	[`the first room`]: 0,
@@ -443,15 +463,28 @@ const ROOM_NAME_TO_NUM = {
 	[`third room`]: 2,
 	[`third room's`]: 2,
 	[`the third room`]: 2,
-	[`the third room\'s`]: 2
+	[`the third room\'s`]: 2,
+  [`1st room`]: 0,
+  [`1st room's`]: 0,
+  [`the 1st room`]: 0,
+  [`the 1st room's`]: 0,
+  [`2nd room`]: 1,
+  [`2nd room's`]: 1,
+  [`the 2nd room`]: 1,
+  [`the 2nd room's`]: 1,
+  [`3rd room`]: 2,
+  [`3rd room's`]: 2,
+  [`the 3rd room`]: 2,
+  [`the 3rd room's`]: 2
 };
 
 function getNumericalLightLevelForRoom(room, requestId, callback) {
 	queue[requestId] = function(response) {
-		callback(response.value);
+    console.log('Calling callback queue function.');
+		callback(response);
 	};
 	device.publish('lighter-queries', JSON.stringify({
-		request_id: requestId,
+		requestId: requestId,
 		room: ROOM_NAME_TO_NUM[room],
 		action: 'GET'
 	}));
@@ -471,7 +504,8 @@ function getMembershipsForLightLevel(numericalLightLevel) {
 
 function getLightLevelForRoom(room, requestId, callback) {
   const numericalLightLevel = getNumericalLightLevelForRoom(room, requestId, function(numericalLightLevel) {
-	  const normalizedLightLevel = min(1000, numericalLightLevel)/10;
+    console.log(`Numerical light level for room is ${numericalLightLevel}`);
+	  const normalizedLightLevel = Math.min(1000, numericalLightLevel)/10;
     const memberships = getMembershipsForLightLevel(normalizedLightLevel);
     memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
     callback(memberships.map(function(element){return element[0]}).join(" "));
