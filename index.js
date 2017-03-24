@@ -106,14 +106,15 @@ function getLightLevel(intent, session, callback) {
   if (roomSlot) { 
     const room = roomSlot.value;
     console.log('Calling getLightLevelForRoom');
-    getLightLevelForRoom(room, intent.requestId, function(lightLevelString) {
-      speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
-      repromptText = `You can ask me to change the light level in any room if you want.`;
-      shouldEndSession = true;
-      console.log(lightLevelString);
-      callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
-    });
+    getLightLevelForRoom(room, intent.requestId)
+      .then(lightLevelString => {
+        speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
+        repromptText = `You can ask me to change the light level in any room if you want.`;
+        shouldEndSession = true;
+        console.log(lightLevelString);
+        callback(sessionAttributes,
+          buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+      });
   } else {
     console.log('Unable to determine the correct room.');
     speechOutput = `I'm not sure which room you were asking about. Please try again.`;
@@ -438,19 +439,31 @@ const ROOM_NAME_TO_NUM = {
   [`the 3rd room's`]: 2
 };
 
-function getNumericalLightLevelForRoom(room, requestId, callback) {
-  const device = createDevice(requestId);
-  queue[requestId] = function(response) {
-    console.log('Calling callback queue function.');
-    device.end();
-    callback(response);
-  };
+function getNumericalLightLevelForRoom(room, requestId) {
+  return new Promise((resolve, reject) => {
+    const device = createDevice(requestId);
 
-	device.publish('lighter-queries', JSON.stringify({
-		requestId: requestId,
-		room: ROOM_NAME_TO_NUM[room],
-		action: 'GET'
-	}));
+    const timeout = setTimeout(() => {
+      if (queue[requestId]) {
+        device.end();
+        queue[requestId] = null;
+        reject(`Request with id ${requestId} timed out.`);
+      }
+    }, 4500);
+
+    queue[requestId] = function(response) {
+      console.log('Calling callback queue function.');
+      clearTimeout(timeout);
+      device.end();
+      resolve(response);
+    };
+
+    device.publish('lighter-queries', JSON.stringify({
+      requestId: requestId,
+      room: ROOM_NAME_TO_NUM[room],
+      action: 'GET'
+    }));
+  });
 }
 
 function getMembershipsForLightLevel(numericalLightLevel) {
@@ -465,14 +478,15 @@ function getMembershipsForLightLevel(numericalLightLevel) {
 	return memberships;
 }
 
-function getLightLevelForRoom(room, requestId, callback) {
-  const numericalLightLevel = getNumericalLightLevelForRoom(room, requestId, function(numericalLightLevel) {
-    console.log(`Numerical light level for room is ${numericalLightLevel}`);
-	  const normalizedLightLevel = Math.min(1000, numericalLightLevel)/10;
-    const memberships = getMembershipsForLightLevel(normalizedLightLevel);
-    memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
-    callback(memberships.map(function(element){return element[0]}).join(" "));
-  });
+function getLightLevelForRoom(room, requestId) {
+  return getNumericalLightLevelForRoom(room, requestId)
+    .then(numericalLightLevel => {
+      console.log(`Numerical light level for room is ${numericalLightLevel}`);
+      const normalizedLightLevel = Math.min(1000, numericalLightLevel)/10;
+      const memberships = getMembershipsForLightLevel(normalizedLightLevel);
+      memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
+      return memberships.map(function(element){return element[0]}).join(" ");
+    });
 }
 
 function setLightLevelForRoom(room, target, modifier, percentage) { 
