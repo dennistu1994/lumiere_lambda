@@ -1,163 +1,160 @@
 'use strict';
 
 // dependencies
-var awsIot = require('aws-iot-device-sdk');
-
+const awsIot = require('aws-iot-device-sdk');
 
 // --------------- Helpers that build all of the responses -----------------------
-
 function buildSpeechletResponse(title, output, repromptText, shouldEndSession) {
-    return {
-        outputSpeech: {
-            type: 'PlainText',
-            text: output,
-        },
-        card: {
-            type: 'Simple',
-            title: `${title}`,
-            content: `${output}`,
-        },
-        reprompt: {
-            outputSpeech: { 
-                type: 'PlainText',
-                text: repromptText,
-            },
-        },
-        shouldEndSession,
-    };
+  return {
+    outputSpeech: {
+      type: 'PlainText',
+      text: output,
+    },
+    card: {
+      type: 'Simple',
+      title: `${title}`,
+      content: `${output}`,
+    },
+    reprompt: {
+      outputSpeech: { 
+        type: 'PlainText',
+        text: repromptText,
+      },
+    },
+    shouldEndSession,
+  };
 }
 
 function buildResponse(sessionAttributes, speechletResponse) {
-    return {
-        version: '1.0',
-        sessionAttributes,
-        response: speechletResponse,
-    };
+  return {
+    version: '1.0',
+    sessionAttributes,
+    response: speechletResponse,
+  };
 }
-
 
 // --------------- Functions that control the skill's behavior -----------------------
 
 function getWelcomeResponse(callback) {
-    // If we wanted to initialize the session to have some attributes we could add those here.
-    const sessionAttributes = {};
-    const cardTitle = 'Welcome';
-    const speechOutput = 'Welcome to Lumiere! Please set or ask for the lighting level in a room.';
-    // If the user either does not reply to the welcome message or says something that is not
-    // understood, they will be prompted again with this text.
-    const repromptText = 'Please set or ask for the lighting level in a room.';
-    const shouldEndSession = false;
+  // If we wanted to initialize the session to have some attributes we could add those here.
+  const sessionAttributes = {};
+  const cardTitle = 'Welcome';
+  const speechOutput = 'Welcome to Lumiere! Please set or ask for the lighting level in a room.';
+  // If the user either does not reply to the welcome message or says something that is not
+  // understood, they will be prompted again with this text.
+  const repromptText = 'Please set or ask for the lighting level in a room.';
+  const shouldEndSession = false;
 
-    callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+  callback(sessionAttributes,
+      buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
 }
 
 function handleSessionEndRequest(callback) {
-    const cardTitle = 'Session Ended';
-    const speechOutput = 'Thank you for trying Lumiere. Have a nice day!';
-    // Setting this to true ends the session and exits the skill.
-    const shouldEndSession = true;
+  const cardTitle = 'Session Ended';
+  const speechOutput = 'Thank you for trying Lumiere. Have a nice day!';
+  // Setting this to true ends the session and exits the skill.
+  const shouldEndSession = true;
 
-    callback({}, buildSpeechletResponse(cardTitle, speechOutput, null, shouldEndSession));
+  callback({}, buildSpeechletResponse(cardTitle, speechOutput, null, shouldEndSession));
 }
 
 function getLightLevel(intent, session, callback) {
-    const cardTitle = 'Get Light Level';
-    const roomSlot = intent.slots.Room;
-    let repromptText = '';
-    const sessionAttributes = {};
-    let shouldEndSession = false;
-    let speechOutput = '';
+  const cardTitle = 'Get Light Level';
+  const roomSlot = intent.slots.Room;
+  let repromptText = '';
+  const sessionAttributes = {};
+  let shouldEndSession = false;
+  let speechOutput = '';
 
-    if (roomSlot) { 
-        const room = roomSlot.value;
-        speechOutput = `${room} is ${getLightLevelForRoom(room, intent.request.requestId)}. You can ask me to change this if you want.`;
-        repromptText = `You can ask me to change the light level in any room if you want.`;
-        shouldEndSession = true;
-    } else {
-        speechOutput = `I'm not sure which room you were asking about. Please try again.`;
-        repromptText = `I'm not sure which room you were asking about.`;
-    }
+  if (roomSlot) { 
+      const room = roomSlot.value;
+      speechOutput = `${room} is ${getLightLevelForRoom(room, intent.request.requestId)}. You can ask me to change this if you want.`;
+      repromptText = `You can ask me to change the light level in any room if you want.`;
+      shouldEndSession = true;
+  } else {
+      speechOutput = `I'm not sure which room you were asking about. Please try again.`;
+      repromptText = `I'm not sure which room you were asking about.`;
+  }
 
-    callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+  callback(sessionAttributes,
+    buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
 }
 
 function setLightLevel(intent, session, callback) {
-    const cardTitle = 'Set Light Level';
-    const roomSlot = intent.slots.Room;
-    const amountSlot = intent.slots.Amount;
-    const modifierSlot = intent.slots.Modifier;
-    const percentageSlot = intent.slots.Percentage;
-    let repromptText = '';
-    const sessionAttributes = {};
-    let shouldEndSession = false;
-    let speechOutput = '';
+  const cardTitle = 'Set Light Level';
+  const roomSlot = intent.slots.Room;
+  const amountSlot = intent.slots.Amount;
+  const modifierSlot = intent.slots.Modifier;
+  const percentageSlot = intent.slots.Percentage;
+  let repromptText = '';
+  const sessionAttributes = {};
+  let shouldEndSession = false;
+  let speechOutput = '';
 
-    if (roomSlot) {
-        const room = roomSlot.value;
-        let amount = null;
-        let modifier = null;
-        let percentage = null;
+  if (roomSlot) {
+    const room = roomSlot.value;
+    let amount = null;
+    let modifier = null;
+    let percentage = null;
 
-        if (amountSlot) {
-            amount = amountSlot.value;
-        }
-        if (modifierSlot) {
-            modifier = modifierSlot.value;
-        }
-        if (percentageSlot) {
-            percentage = percentageSlot.value;
-        }
-
-        setLightLevelForRoom(room, amount, modifier, percentage);
-
-        speechOutput = `Successfully set the light level for room ${room}. You can ask me to change this if you want.`;
-        repromptText = `You can ask me to change the light level in any room if you want.`;
-        shouldEndSession = true;
-    } else {
-        speechOutput = `I'm not sure which room you wanted me to adjust. Please try again.`;
-        repromptText = `I'm not sure which room you wanted me to adjust.`;
+    if (amountSlot) {
+        amount = amountSlot.value;
+    }
+    if (modifierSlot) {
+        modifier = modifierSlot.value;
+    }
+    if (percentageSlot) {
+        percentage = percentageSlot.value;
     }
 
-    callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+    setLightLevelForRoom(room, amount, modifier, percentage);
+
+    speechOutput = `Successfully set the light level for room ${room}. You can ask me to change this if you want.`;
+    repromptText = `You can ask me to change the light level in any room if you want.`;
+    shouldEndSession = true;
+  } else {
+    speechOutput = `I'm not sure which room you wanted me to adjust. Please try again.`;
+    repromptText = `I'm not sure which room you wanted me to adjust.`;
+  }
+
+  callback(sessionAttributes,
+    buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
 }
 
 function changeLightLevel(intent, session, callback, direction) {
-    const cardTitle = 'Change Light Level';
-    const roomSlot = intent.slots.Room;
-    const amountSlot = intent.slots.ChangeAmount;
-    const modifierSlot = intent.slots.ChangeModifier;
-    let repromptText = '';
-    const sessionAttributes = {};
-    let shouldEndSession = false;
-    let speechOutput = '';
+  const cardTitle = 'Change Light Level';
+  const roomSlot = intent.slots.Room;
+  const amountSlot = intent.slots.ChangeAmount;
+  const modifierSlot = intent.slots.ChangeModifier;
+  let repromptText = '';
+  const sessionAttributes = {};
+  let shouldEndSession = false;
+  let speechOutput = '';
 
-    if (roomSlot) {
-        const room = roomSlot.value;
-        let amount = null;
-        let modifier = null;
+  if (roomSlot) {
+    const room = roomSlot.value;
+    let amount = null;
+    let modifier = null;
 
-        if (amountSlot) {
-            amount = amountSlot.value;
-        }
-        if (modifierSlot) {
-            modifier = modifierSlot.value;
-        }
-
-        changeLightLevelForRoom(room, amount, modifier, direction);
-
-        speechOutput = `Successfully changed the light level for room ${room}. You can ask me to change this if you want.`;
-        repromptText = `You can ask me to change the light level in any room if you want.`;
-        shouldEndSession = true;
-    } else {
-        speechOutput = `I'm not sure which room you wanted me to adjust. Please try again.`;
-        repromptText = `I'm not sure which room you wanted me to adjust.`;
+    if (amountSlot) {
+        amount = amountSlot.value;
+    }
+    if (modifierSlot) {
+        modifier = modifierSlot.value;
     }
 
-    callback(sessionAttributes,
-        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+    changeLightLevelForRoom(room, amount, modifier, direction);
+
+    speechOutput = `Successfully changed the light level for room ${room}. You can ask me to change this if you want.`;
+    repromptText = `You can ask me to change the light level in any room if you want.`;
+    shouldEndSession = true;
+  } else {
+    speechOutput = `I'm not sure which room you wanted me to adjust. Please try again.`;
+    repromptText = `I'm not sure which room you wanted me to adjust.`;
+  }
+
+  callback(sessionAttributes,
+    buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
 }
 
 // --------------- Events -----------------------
@@ -165,66 +162,65 @@ function changeLightLevel(intent, session, callback, direction) {
 /**
  * Called when the session starts.
  */
-var queue = {};
-var device;
-	device = awsIot.device({
+const queue = {};
+const device = awsIot.device({
 	keyPath: 'lumiere-private.pem.key',
 	certPath: 'lumiere-certificate.pem.crt',
 	caPath: 'root_CA.crt',
 	clientId: 'lumiere_lambda',
 	region: 'us-east-1' 
 });
+
 device
   .on('connect', function() {
     console.log('connect');
-      device.subscribe('rpi-responses');
-    });
+    device.subscribe('rpi-responses');
+  });
 
 device
   .on('message', function(topic, payload) {
-    console.log('message', topic, payload.toString());
-  });
+  console.log('message', topic, payload.toString());
+});
 
 function onSessionStarted(sessionStartedRequest, session) {
-
-    console.log(`onSessionStarted requestId=${sessionStartedRequest.requestId}, sessionId=${session.sessionId}`);
+  console.log(`onSessionStarted requestId=${sessionStartedRequest.requestId}, sessionId=${session.sessionId}`);
 }
 
 /**
  * Called when the user launches the skill without specifying what they want.
  */
 function onLaunch(launchRequest, session, callback) {
-    console.log(`onLaunch requestId=${launchRequest.requestId}, sessionId=${session.sessionId}`);
+  console.log(`onLaunch requestId=${launchRequest.requestId}, sessionId=${session.sessionId}`);
 
-    // Dispatch to your skill's launch.
-    getWelcomeResponse(callback);
+  // Dispatch to your skill's launch.
+  getWelcomeResponse(callback);
 }
 
 /**
  * Called when the user specifies an intent for this skill.
  */
 function onIntent(intentRequest, session, callback) {
-    console.log(`onIntent requestId=${intentRequest.requestId}, sessionId=${session.sessionId}`);
+  console.log(`onIntent requestId=${intentRequest.requestId}, sessionId=${session.sessionId}`);
 
-    const intent = intentRequest.intent;
-    const intentName = intentRequest.intent.name;
+  const intent = intentRequest.intent;
+  const intentName = intentRequest.intent.name;
 
-    // Dispatch to your skill's intent handlers
-    if (intentName === 'GetLightLevel') {
-        getLightLevel(intent, session, callback);
-    } else if (intentName === 'SetLightLevel') {
-        setLightLevel(intent, session, callback);
-    } else if (intentName === 'IncreaseLightLevel') {
-        changeLightLevel(intent, session, callback, 1);
-    } else if (intentName === 'DecreaseLightLevel') {
-        changeLightLevel(intent, session, callback, -1);
-    } else if (intentName === 'AMAZON.HelpIntent') {
-        getWelcomeResponse(callback);
-    } else if (intentName === 'AMAZON.StopIntent' || intentName === 'AMAZON.CancelIntent') {
-        handleSessionEndRequest(callback);
-    } else {
-        throw new Error('Invalid intent');
-    }
+  // Dispatch to your skill's intent handlers
+  if (intentName === 'GetLightLevel') {
+    getLightLevel(intent, session, callback);
+  } else if (intentName === 'SetLightLevel') {
+    setLightLevel(intent, session, callback);
+  } else if (intentName === 'IncreaseLightLevel') {
+    changeLightLevel(intent, session, callback, 1);
+  } else if (intentName === 'DecreaseLightLevel') {
+    changeLightLevel(intent, session, callback, -1);
+  } else if (intentName === 'AMAZON.HelpIntent') {
+    getWelcomeResponse(callback);
+  } else if (intentName === 'AMAZON.StopIntent' || intentName === 'AMAZON.CancelIntent') {
+    handleSessionEndRequest(callback);
+  } else {
+    throw new Error('Invalid intent');
+  }
 }
 
 /**
@@ -232,8 +228,8 @@ function onIntent(intentRequest, session, callback) {
  * Is not called when the skill returns shouldEndSession=true.
  */
 function onSessionEnded(sessionEndedRequest, session) {
-    console.log(`onSessionEnded requestId=${sessionEndedRequest.requestId}, sessionId=${session.sessionId}`);
-    // Add cleanup logic here
+  console.log(`onSessionEnded requestId=${sessionEndedRequest.requestId}, sessionId=${session.sessionId}`);
+  // Add cleanup logic here
 }
 
 
@@ -242,115 +238,115 @@ function onSessionEnded(sessionEndedRequest, session) {
 // Route the incoming request based on type (LaunchRequest, IntentRequest,
 // etc.) The JSON body of the request is provided in the event parameter.
 exports.handler = (event, context, callback) => {
-    try {
-        console.log(`event.session.application.applicationId=${event.session.application.applicationId}`);
+  try {
+    console.log(`event.session.application.applicationId=${event.session.application.applicationId}`);
 
-        if (event.session.application.applicationId !== 'amzn1.ask.skill.e417dffb-16cb-4536-852b-afc2623718b4') {
-             callback('Invalid Application ID');
-        }
-
-        if (event.session.new) {
-            onSessionStarted({ requestId: event.request.requestId }, event.session);
-        }
-
-        if (event.request.type === 'LaunchRequest') {
-            onLaunch(event.request,
-                event.session,
-                (sessionAttributes, speechletResponse) => {
-                    callback(null, buildResponse(sessionAttributes, speechletResponse));
-                });
-        } else if (event.request.type === 'IntentRequest') {
-            onIntent(event.request,
-                event.session,
-                (sessionAttributes, speechletResponse) => {
-                    callback(null, buildResponse(sessionAttributes, speechletResponse));
-                });
-        } else if (event.request.type === 'SessionEndedRequest') {
-            onSessionEnded(event.request, event.session);
-            callback();
-        }
-    } catch (err) {
-        callback(err);
+    if (event.session.application.applicationId !== 'amzn1.ask.skill.e417dffb-16cb-4536-852b-afc2623718b4') {
+      callback('Invalid Application ID');
     }
+
+    if (event.session.new) {
+      onSessionStarted({ requestId: event.request.requestId }, event.session);
+    }
+
+    if (event.request.type === 'LaunchRequest') {
+      onLaunch(event.request,
+        event.session,
+        (sessionAttributes, speechletResponse) => {
+          callback(null, buildResponse(sessionAttributes, speechletResponse));
+        });
+    } else if (event.request.type === 'IntentRequest') {
+      onIntent(event.request,
+        event.session,
+        (sessionAttributes, speechletResponse) => {
+          callback(null, buildResponse(sessionAttributes, speechletResponse));
+        });
+    } else if (event.request.type === 'SessionEndedRequest') {
+      onSessionEnded(event.request, event.session);
+      callback();
+    }
+  } catch (err) {
+    callback(err);
+  }
 };
 
 //FIS related functions
-function FuzzySet(center, membership_function, inverse_membership_function){
+function FuzzySet(center, membership_function, inverse_membership_function) {
 	this.center = center;
 	this.membership_function = membership_function;
 	this.inverse_membership_function = inverse_membership_function;
 }
 
-var MODIFIER_DEVIATION = {
+const MODIFIER_DEVIATION = {
 	very: 0,
 	moderately: 1/6,
 	somewhat: 1/3,
 	slightly: 0.5
 };
 
-var BRIGHTNESS_FUZZY_SETS = {
-	dark: new FuzzySet(0, function(x){
+const BRIGHTNESS_FUZZY_SETS = {
+	dark: new FuzzySet(0, function(x) {
 		if (x>=0 && x<=25){
 			return 1 - x / 25;
 		} else {
 			return 0;
 		}
-	}, function(modifier){
-		var deviation = MODIFIER_DEVIATION[modifier];
-		var y = 1 - deviation;
+	}, function(modifier) {
+		const deviation = MODIFIER_DEVIATION[modifier];
+		const y = 1 - deviation;
 		return 25 - 25 * y;
 	}),
-	dim: new FuzzySet(25, function(x){ //a.k.a low
-		if (x > 25 && x <= 50){
+	dim: new FuzzySet(25, function(x) { //a.k.a low
+		if (x > 25 && x <= 50) {
 			return 2-x/25;
-		} else if (x>=0 && x<=25){
+		} else if (x>=0 && x<=25) {
 			return  x/25;
 		} else {
 			return 0;
 		}
-	}, function(modifier){
-		var deviation = MODIFIER_DEVIATION[modifier];
-		var y = 1 - deviation;
+	}, function(modifier) {
+		const deviation = MODIFIER_DEVIATION[modifier];
+		const y = 1 - deviation;
 		return 50 - 25 * y;
 	}),
-	medium: new FuzzySet(50, function(x){
-		if (x > 50 && x <= 75){
+	medium: new FuzzySet(50, function(x) {
+		if (x > 50 && x <= 75) {
 			return 3-x/25;
-		} else if (x>=25 && x<=50){
+		} else if (x>=25 && x<=50) {
 			return  x/25 - 1;
 		} else {
 			return 0;
 		}
-	}, function(modifier){
+	}, function(modifier) {
 		return 50;
 	}),
-	high: new FuzzySet(75, function(x){
-		if (x > 75 && x <= 100){
+	high: new FuzzySet(75, function(x) {
+		if (x > 75 && x <= 100) {
 			return 4-x/25;
-		} else if (x>=50 && x<=75){
+		} else if (x>=50 && x<=75) {
 			return  x/25 - 2;
 		} else {
 			return 0;
 		}
-	}, function(modifier){
-		var deviation = MODIFIER_DEVIATION[modifier];
-		var y = 1 - deviation;
+	}, function(modifier) {
+		const deviation = MODIFIER_DEVIATION[modifier];
+		const y = 1 - deviation;
 		return 50 + 25 * y;
 	}),
-	bright: new FuzzySet(100, function(x){
+	bright: new FuzzySet(100, function(x) {
 		if (x>=75 && x<=100){
 			return  x/25 - 3;
 		} else {
 			return 0;
 		}
-	}, function(modifier){
-		var deviation = MODIFIER_DEVIATION[modifier];
-		var y = 1 - deviation;
+	}, function(modifier) {
+		const deviation = MODIFIER_DEVIATION[modifier];
+		const y = 1 - deviation;
 		return 75 + 25 * y;
 	})
 }
 
-var CHANGE_AMOUNT = {
+const CHANGE_AMOUNT = {
 	bit: 10,
 	little: 10, 
 	tad: 10,
@@ -384,7 +380,7 @@ var CHANGE_AMOUNT = {
 };
 
 //percentages
-var CHANGE_MODIFIER = {
+const CHANGE_MODIFIER = {
 	little: 100,
 	miniscule: 50,
 	minute: 50,
@@ -420,29 +416,29 @@ var CHANGE_MODIFIER = {
 	moderate: 100
 };
 
-var ROOM_NAME_TO_NUM = {
-	`room one`,
-	`room one's`,
-	`room two`,
-	`room two's`,
-	`room three`,
-	`room three's`,
-	`first room`,
-	`first room's`,
-	`the first room`,
-	`the first room's`,
-	`second room`,
-	`second room's`,
-	`the second room`,
-	`the second room's`,
-	`third room`,
-	`third room's`,
-	`the third room`,
-	`the third room\'s`
-}
+const ROOM_NAME_TO_NUM = {
+	[`room one`]: 0,
+	[`room one's`]: 0,
+	[`room two`]: 1,
+	[`room two's`]: 1,
+	[`room three`]: 2,
+	[`room three's`]: 2,
+	[`first room`]: 0,
+	[`first room's`]: 0,
+	[`the first room`]: 0,
+	[`the first room's`]: 0,
+	[`second room`]: 1,
+	[`second room's`]: 1,
+	[`the second room`]: 1,
+	[`the second room's`]: 1,
+	[`third room`]: 2,
+	[`third room's`]: 2,
+	[`the third room`]: 2,
+	[`the third room\'s`]: 2
+};
 
-function getNumericalLightLevelForRoom(room, requestId, callback){
-	queue[requestId] = function(response){
+function getNumericalLightLevelForRoom(room, requestId, callback) {
+	queue[requestId] = function(response) {
 		callback(response.value);
 	};
 	device.publish('lighter-queries', JSON.stringify({
@@ -452,38 +448,39 @@ function getNumericalLightLevelForRoom(room, requestId, callback){
 	}));
 }
 
-function getMembershipsForLightLevel(numericalLightLevel){
+function getMembershipsForLightLevel(numericalLightLevel) {
 	//light_level between 0 to 100
-	var memberships = [];
-	for (var key in BRIGHTNESS_FUZZY_SETS){
-		var membership = BRIGHTNESS_FUZZY_SETS[key].membership_function(numericalLightLevel);
+	const memberships = [];
+	for (const key in BRIGHTNESS_FUZZY_SETS){
+		const membership = BRIGHTNESS_FUZZY_SETS[key].membership_function(numericalLightLevel);
 		if (membership > 0){
 			memberships.push([key, membership]);
 		}
 	}
 	return memberships;
 }
+
 function getLightLevelForRoom(room, requestId, callback) {
-    var numericalLightLevel = getNumericalLightLevelForRoom(room, requestId, function(numericalLightLevel){
-	var normalizedLightLevel = min(1000, numericalLightLevel
-    });
-	var memberships = getMembershipsForLightLevel(numericalLightLevel);
-	memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
-	return memberships.map(function(element){return element[0]}).join(" ");
+  const numericalLightLevel = getNumericalLightLevelForRoom(room, requestId, function(numericalLightLevel) {
+	  const normalizedLightLevel = min(1000, numericalLightLevel)/10;
+    const memberships = getMembershipsForLightLevel(normalizedLightLevel);
+    memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
+    return memberships.map(function(element){return element[0]}).join(" ");
+  });
 }
 
-function setLightLevelForRoom(room, target, modifier, percentage){
-	if(target != null){
-		if(target == 'low'){
+function setLightLevelForRoom(room, target, modifier, percentage) { 
+	if (target != null) {
+		if (target == 'low') {
 			target = 'dim';
-		} else if(target == 'on'){
+		} else if (target == 'on') {
 			target = 'high';
 			modifier = 'somewhat';
-		} else if (target == 'off'){
+		} else if (target == 'off') {
 			target = 'dark';
 			modifier = 'very';
 		}
-		if(modifier === null) {
+		if (modifier === null) {
 			modifier = 'moderately'	
 		}
 		percentage = BRIGHTNESS_FUZZY_SETS[target].inverse_membership_function(modifier);
@@ -492,20 +489,20 @@ function setLightLevelForRoom(room, target, modifier, percentage){
 		//TODO throw an error or set to default brightness
 		percentage = 50;
 	}
-	var numericalLightLevel = getNumericalLightLevelForRoom(room);
-	var memberships = getMembershipsForLightLevel(numericalLightLevel);
-	var delta = 0;
-	memberships.forEach(function(membership){
-		var name = membership[0];
-		var weight = membership[1];
+	const numericalLightLevel = getNumericalLightLevelForRoom(room);
+	const memberships = getMembershipsForLightLevel(numericalLightLevel);
+	const delta = 0;
+	memberships.forEach(function(membership) {
+		const name = membership[0];
+		const weight = membership[1];
 		delta += weight * (percentage - BRIGHTNESS_FUZZY_SETS[name].center);
 	});
 	//TODO set the actual light level with delta, check for NaN
 	console.log(delta);
 }
 
-function changeLightLevelForRoom(room, change_amount, change_modifier, direction){
-	var delta = CHANGE_AMOUNT[change_amount] * CHANGE_MODIFIER[change_modifier] / 100 * direction;
+function changeLightLevelForRoom(room, change_amount, change_modifier, direction) {
+	const delta = CHANGE_AMOUNT[change_amount] * CHANGE_MODIFIER[change_modifier] / 100 * direction;
 	//TODO set the actual light level with delta, check for NaN
 	console.log(delta);
 };
