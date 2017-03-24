@@ -3,7 +3,44 @@
 // dependencies
 const awsIot = require('aws-iot-device-sdk');
 
+/**
+ * Called when the session starts.
+ */
+const queue = {};
+
+function createDevice(requestId) {
+  const device = awsIot.device({
+    keyPath: 'lumiere-private.pem.key',
+    certPath: 'lumiere-certificate.pem.crt',
+    caPath: 'root_CA.crt',
+    clientId: `lumiere_lambda_${requestId}`,
+    region: 'us-east-1'
+  });
+
+  device
+    .on('connect', function() {
+      console.log('connect');
+      device.subscribe('rpi-responses');
+    });
+
+  device
+    .on('message', function(topic, payload) {
+      console.log(`${topic}: ${payload.toString()}`);
+      if (topic === 'rpi-responses') {
+        const message = JSON.parse(payload.toString());
+        console.log('Received message, queue[requestId] = ', queue[message.requestId]);
+        if (message.success === true && queue[message.requestId]) {
+          queue[message.requestId](message.value); 
+          queue[message.requestId] = null;
+        }
+      }
+    });
+
+    return device;
+};
+
 // --------------- Helpers that build all of the responses -----------------------
+
 function buildSpeechletResponse(title, output, repromptText, shouldEndSession) {
   return {
     outputSpeech: {
@@ -69,22 +106,14 @@ function getLightLevel(intent, session, callback) {
   if (roomSlot) { 
     const room = roomSlot.value;
     console.log('Calling getLightLevelForRoom');
-    callback(sessionAttributes, buildSpeechletResponse(cardTitle, 'Hello, world. I hate this course.', 'FML', true));
-    // getLightLevelForRoom(room, intent.requestId, function(lightLevelString) {
-    //   speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
-    //   repromptText = `You can ask me to change the light level in any room if you want.`;
-    //   shouldEndSession = true;
-    //   console.log(lightLevelString);
-    //   console.log(sessionAttributes);
-    //   console.log(cardTitle);
-    //   console.log(speechOutput);
-    //   console.log(repromptText);
-    //   console.log(shouldEndSession);
-    //   console.log(callback);
-    //   console.log(this);
-    //   this(sessionAttributes,
-    //     buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
-    // }.bind(callback));
+    getLightLevelForRoom(room, intent.requestId, function(lightLevelString) {
+      speechOutput = `${room} is ${lightLevelString}. You can ask me to change this if you want.`;
+      repromptText = `You can ask me to change the light level in any room if you want.`;
+      shouldEndSession = true;
+      console.log(lightLevelString);
+      callback(sessionAttributes,
+        buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
+    });
   } else {
     console.log('Unable to determine the correct room.');
     speechOutput = `I'm not sure which room you were asking about. Please try again.`;
@@ -173,37 +202,6 @@ function changeLightLevel(intent, session, callback, direction) {
 
 // --------------- Events -----------------------
 
-/**
- * Called when the session starts.
- */
-const queue = {};
-const device = awsIot.device({
-	keyPath: 'lumiere-private.pem.key',
-	certPath: 'lumiere-certificate.pem.crt',
-	caPath: 'root_CA.crt',
-	clientId: 'lumiere_lambda',
-	region: 'us-east-1' 
-});
-
-device
-  .on('connect', function() {
-    console.log('connect');
-    device.subscribe('rpi-responses');
-  });
-
-device
-  .on('message', function(topic, payload) {
-    console.log(`${topic}: ${payload.toString()}`);
-    if (topic === 'rpi-responses') {
-      const message = JSON.parse(payload.toString());
-      console.log('Received message, queue[requestId] = ', queue[message.requestId]);
-      if (message.success === true && queue[message.requestId]) {
-        queue[message.requestId](message.value);	
-        queue[message.requestId] = null;
-      }
-    }
-  });
-
 function onSessionStarted(sessionStartedRequest, session) {
   console.log(`onSessionStarted requestId=${sessionStartedRequest.requestId}, sessionId=${session.sessionId}`);
 }
@@ -254,44 +252,6 @@ function onSessionEnded(sessionEndedRequest, session) {
   console.log(`onSessionEnded requestId=${sessionEndedRequest.requestId}, sessionId=${session.sessionId}`);
   // Add cleanup logic here
 }
-
-
-// --------------- Main handler -----------------------
-
-// Route the incoming request based on type (LaunchRequest, IntentRequest,
-// etc.) The JSON body of the request is provided in the event parameter.
-exports.handler = (event, context, callback) => {
-  try {
-    console.log(`event.session.application.applicationId=${event.session.application.applicationId}`);
-
-    if (event.session.application.applicationId !== 'amzn1.ask.skill.e417dffb-16cb-4536-852b-afc2623718b4') {
-      callback('Invalid Application ID');
-    }
-
-    if (event.session.new) {
-      onSessionStarted({ requestId: event.request.requestId }, event.session);
-    }
-
-    if (event.request.type === 'LaunchRequest') {
-      onLaunch(event.request,
-        event.session,
-        (sessionAttributes, speechletResponse) => {
-          callback(null, buildResponse(sessionAttributes, speechletResponse));
-        });
-    } else if (event.request.type === 'IntentRequest') {
-      onIntent(event.request,
-        event.session,
-        (sessionAttributes, speechletResponse) => {
-          callback(null, buildResponse(sessionAttributes, speechletResponse));
-        });
-    } else if (event.request.type === 'SessionEndedRequest') {
-      onSessionEnded(event.request, event.session);
-      callback();
-    }
-  } catch (err) {
-    callback(err);
-  }
-};
 
 //FIS related functions
 function FuzzySet(center, membership_function, inverse_membership_function) {
@@ -479,10 +439,13 @@ const ROOM_NAME_TO_NUM = {
 };
 
 function getNumericalLightLevelForRoom(room, requestId, callback) {
-	queue[requestId] = function(response) {
+  const device = createDevice(requestId);
+  queue[requestId] = function(response) {
     console.log('Calling callback queue function.');
-		callback(response);
-	};
+    device.end();
+    callback(response);
+  };
+
 	device.publish('lighter-queries', JSON.stringify({
 		requestId: requestId,
 		room: ROOM_NAME_TO_NUM[room],
@@ -548,4 +511,41 @@ function changeLightLevelForRoom(room, change_amount, change_modifier, direction
 	const delta = CHANGE_AMOUNT[change_amount] * CHANGE_MODIFIER[change_modifier] / 100 * direction;
 	//TODO set the actual light level with delta, check for NaN
 	console.log(delta);
+};
+
+// --------------- Main handler -----------------------
+
+// Route the incoming request based on type (LaunchRequest, IntentRequest,
+// etc.) The JSON body of the request is provided in the event parameter.
+exports.handler = (event, context, callback) => {
+  try {
+    console.log(`event.session.application.applicationId=${event.session.application.applicationId}`);
+
+    if (event.session.application.applicationId !== 'amzn1.ask.skill.e417dffb-16cb-4536-852b-afc2623718b4') {
+      callback('Invalid Application ID');
+    }
+
+    if (event.session.new) {
+      onSessionStarted({ requestId: event.request.requestId }, event.session);
+    }
+
+    if (event.request.type === 'LaunchRequest') {
+      onLaunch(event.request,
+        event.session,
+        (sessionAttributes, speechletResponse) => {
+          callback(null, buildResponse(sessionAttributes, speechletResponse));
+        });
+    } else if (event.request.type === 'IntentRequest') {
+      onIntent(event.request,
+        event.session,
+        (sessionAttributes, speechletResponse) => {
+          callback(null, buildResponse(sessionAttributes, speechletResponse));
+        });
+    } else if (event.request.type === 'SessionEndedRequest') {
+      onSessionEnded(event.request, event.session);
+      callback();
+    }
+  } catch (err) {
+    callback(err);
+  }
 };
