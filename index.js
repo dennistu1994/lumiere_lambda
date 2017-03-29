@@ -107,10 +107,15 @@ function getLightLevel(intent, session, callback) {
     const room = roomSlot.value;
     console.log('Calling getLightLevelForRoom');
     getLightLevelForRoom(room, intent.requestId)
-      .then(lightLevelString => {
-        speechOutput = `${normalizeRoomName(room)} is ${lightLevelString}.`;
+      .then(response => {
+        console.log(JSON.stringify(response));
         repromptText = `You can ask me to change the light level in any room if you want.`;
-        console.log(lightLevelString);
+        if (response.success){
+          speechOutput = `${normalizeRoomName(room)} is ${response.value}.`;
+        } else {
+          speechOutput = `Failed to get light level for ${normalizeRoomName(room)}`;
+        }
+
         callback(sessionAttributes,
           buildSpeechletResponse(cardTitle, speechOutput, repromptText, shouldEndSession));
       });
@@ -466,6 +471,9 @@ function normalizeLightLevel(rawLightLevel){
 }
 
 function getLightLevelString(numericalLightLevel){
+  if(numericalLightLevel == 0){
+    return 'off';
+  }
   const memberships = getMembershipsForLightLevel(numericalLightLevel);
   memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
   var joiner = JOINERS[Math.floor(Math.random()*JOINERS.length)];
@@ -556,10 +564,11 @@ function setLightLevelForRoom(room, target, modifier, percentage, requestId) {
 		percentage = 50;
 	}
   if (absolute){
-    console.log('Calling sendLightLevelSet');
+    console.log('Calling sendLightLevelSet', target, modifier, percentage);
     return sendLightLevelSet(room, percentage, requestId);
   } else {
-    return getNumericalLightLevelForRoom(room, requestId).then(function(numericalLightLevel){
+    return getNumericalLightLevelForRoom(room, requestId).then(function(response){
+      var numericalLightLevel=response.value;
       const memberships = getMembershipsForLightLevel(numericalLightLevel);
       var delta_percentage = 0;
       console.log(memberships, modifier, target, percentage);
@@ -569,6 +578,7 @@ function setLightLevelForRoom(room, target, modifier, percentage, requestId) {
         delta_percentage += weight * (percentage - BRIGHTNESS_FUZZY_SETS[name].center);
       });
       //TODO set the actual light level with delta, check for NaN
+      console.log('Calling sendLightLevelChange', target, modifier, percentage, numericalLightLevel);
       return sendLightLevelChange(room, delta_percentage, requestId);
     });
   }
