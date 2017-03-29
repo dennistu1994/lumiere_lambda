@@ -29,7 +29,7 @@ function createDevice(requestId) {
       if (topic === 'rpi-responses') {
         const message = JSON.parse(payload.toString());
         console.log('Received message, queue[requestId] = ', queue[message.requestId]);
-        if (message.success === true && queue[message.requestId]) {
+        if (queue[message.requestId]) {
           queue[message.requestId](message.success, message.value); 
           queue[message.requestId] = null;
         }
@@ -154,10 +154,10 @@ function setLightLevel(intent, session, callback) {
         percentage = percentageSlot.value;
     }
 
-    setLightLevelForRoom(room, amount, modifier, percentage, intent.requestId).then(function(success){
-      console.log('response in setLightLevel', success);
-      if (success){
-        speechOutput = `Successfully changed the light level for ${normalizeRoomName(room)}.`;
+    setLightLevelForRoom(room, amount, modifier, percentage, intent.requestId).then(function(response) {
+      console.log('response in setLightLevel', response.success, response.value);
+      if (response.success){
+        speechOutput = `Successfully changed the light level for ${normalizeRoomName(room)} to ${getLightLevelString(normalizeLightLevel(response.value))}.`;
         repromptText = `You can ask me to change the light level in any room if you want.`;
       } else {
         speechOutput = `Failed to change the light level for ${normalizeRoomName(room)}.`;
@@ -196,9 +196,9 @@ function changeLightLevel(intent, session, callback, direction) {
         modifier = modifierSlot.value;
     }
 
-    changeLightLevelForRoom(room, amount, modifier, direction, intent.requestId).then(function(success){
-      if (success){
-        speechOutput = `Successfully changed the light level for ${normalizeRoomName(room)}.`;
+    changeLightLevelForRoom(room, amount, modifier, direction, intent.requestId).then(function(response){
+      if (response.success){
+        speechOutput = `Successfully changed the light level for ${normalizeRoomName(room)} to ${getLightLevelString(normalizeLightLevel(response.value))}.`;
         repromptText = `You can ask me to change the light level in any room if you want.`;
       } else {
         speechOutput = `Failed to change the light level for ${normalizeRoomName(room)}.`;
@@ -461,6 +461,17 @@ const ROOM_NUM_TO_NAME = {
   2: 'Room Three'
 }
 
+function normalizeLightLevel(rawLightLevel){
+  return Math.min(900, rawLightLevel)/9;
+}
+
+function getLightLevelString(numericalLightLevel){
+  const memberships = getMembershipsForLightLevel(numericalLightLevel);
+  memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
+  var joiner = JOINERS[Math.floor(Math.random()*JOINERS.length)];
+  return memberships.map(function(element){return element[0]}).join(joiner);
+}
+
 //returns light level between 0 to 100
 function getNumericalLightLevelForRoom(room, requestId) {
   return new Promise((resolve, reject) => {
@@ -478,8 +489,7 @@ function getNumericalLightLevelForRoom(room, requestId) {
       console.log('Calling callback queue function.');
       clearTimeout(timeout);
       device.end();
-      const normalizedLightLevel = Math.min(900, rawLightLevel)/9;
-      resolve(normalizedLightLevel);
+      resolve({success, value: normalizeLightLevel(rawLightLevel)});
     };
 
     device.publish('lighter-queries', JSON.stringify({
@@ -511,12 +521,13 @@ const JOINERS = [
 
 function getLightLevelForRoom(room, requestId) {
   return getNumericalLightLevelForRoom(room, requestId)
-    .then(numericalLightLevel => {
-      console.log(`Numerical light level for room is ${numericalLightLevel}`);
-      const memberships = getMembershipsForLightLevel(numericalLightLevel);
-      memberships.sort(function(a, b){return b[1]-a[1];}); //sort in descending order
-      var joiner = JOINERS[Math.floor(Math.random()*JOINERS.length)];
-      return memberships.map(function(element){return element[0]}).join(joiner);
+    .then(response => {
+      console.log(`Numerical light level for room is ${response.value}`);
+      if (response.success) {
+        return { success: response.success, value: getLightLevelString(response.value) };
+      } else {
+        return { success: false };
+      }
     });
     //TODO add .catch function
 }
@@ -545,6 +556,7 @@ function setLightLevelForRoom(room, target, modifier, percentage, requestId) {
 		percentage = 50;
 	}
   if (absolute){
+    console.log('Calling sendLightLevelSet');
     return sendLightLevelSet(room, percentage, requestId);
   } else {
     return getNumericalLightLevelForRoom(room, requestId).then(function(numericalLightLevel){
@@ -587,11 +599,11 @@ function sendLightLevelChange(room, delta_percentage, requestId){
       }
     }, 4500);
 
-    queue[requestId] = function(success, unused) {
+    queue[requestId] = function(success, value) {
       console.log('Calling callback queue function with response', success);
       clearTimeout(timeout);
       device.end();
-      resolve(success);
+      resolve({success, value});
     };
 
     device.publish('lighter-queries', JSON.stringify({
@@ -616,11 +628,11 @@ function sendLightLevelSet(room, percentage, requestId){
       }
     }, 4500);
 
-    queue[requestId] = function(success, unused) {
-      console.log('Calling callback queue function.', success);
+    queue[requestId] = function(success, value) {
+      console.log('Calling callback queue function.', success, value);
       clearTimeout(timeout);
       device.end();
-      resolve(success);
+      resolve({success, value});
     };
 
     device.publish('lighter-queries', JSON.stringify({
